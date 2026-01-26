@@ -26,7 +26,7 @@ net = Mininet(
     ipBase='1.0.0.0/8'
 )
 
-switchPath = "../../BPFabric/softswitch/softswitch"; 
+switchPath = "../softswitch/softswitch"; 
 
 hosts = []
 switches = []
