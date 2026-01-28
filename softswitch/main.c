@@ -509,6 +509,13 @@ void transmit(struct metadatahdr *buf, int len, uint64_t target, int flags)
     //
     case PORT:
         tx_frame(&dataplane.ports[target & VALUE_MASK], eth_frame, eth_len);
+
+        // HACK, same as for FLOOD case
+        // call poll() asynchronously on packet from controller
+        if (flags == 1)
+        {
+            send(dataplane.ports[target & VALUE_MASK].fd, NULL, 0, MSG_DONTWAIT);
+        }
         break;
     //
     case NEXT:
