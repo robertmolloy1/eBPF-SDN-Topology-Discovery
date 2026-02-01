@@ -16,6 +16,9 @@
 /** Send the packet to the next pipeline stage */
 #define NEXT (0x04ULL << 32)
 
+/** Send the packet to be processed by the eBPF pipeline */
+#define PIPELINE (0x05ULL << 32)
+
 #define OPCODE_MASK (0xffffffffULL << 32)
 
 #define VALUE_MASK 0xffffffff

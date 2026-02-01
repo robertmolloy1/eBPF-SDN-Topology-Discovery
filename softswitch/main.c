@@ -480,6 +480,21 @@ void transmit(struct metadatahdr *buf, int len, uint64_t target, int flags)
 
     switch (target & OPCODE_MASK)
     {
+    case PIPELINE:
+
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+
+        struct metadatahdr *metadatahdr = (struct metadatahdr *)((uint8_t *)buf);
+                metadatahdr->in_port = -1;
+                metadatahdr->sec = ts.tv_sec;
+                metadatahdr->nsec = ts.tv_nsec;
+                metadatahdr->length = eth_len;
+        
+        uint64_t ret = pipeline_exec(metadatahdr, eth_len + sizeof(struct metadatahdr));
+        transmit(metadatahdr, eth_len + sizeof(struct metadatahdr), ret, 1);
+        break;
+    //
     case FLOOD:
         for (i = 0; i < dataplane.port_count; i++)
         {

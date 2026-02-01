@@ -98,7 +98,7 @@ uint64_t bpf_debug(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t 
 uint64_t bpf_mirror(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t r5)
 {
     // void *buf, int len, uint64_t out_port, int flags
-    agent.transmit((void *)r2, r3, r1, 0);
+    agent.transmit((void *)r2, r3, r1, 1);
 
     return 0;
 }
@@ -150,12 +150,14 @@ uint64_t bpf_delete(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t
     return bpf_delete_elem(r1, (void *)r2);
 }
 
-uint64_t bpf_time(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t r5)
+uint64_t bpf_get_dpid(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t r5)
 {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    
-    return (uint64_t)ts.tv_sec * 1000000000ULL +(uint64_t)ts.tv_nsec;
+    return agent.options->dpid;
+}
+
+uint64_t bpf_get_port_count(uint64_t r1, uint64_t r2, uint64_t r3, uint64_t r4, uint64_t r5)
+{
+    return agent.options->port_count;
 }
 
 /**
@@ -229,10 +231,11 @@ int recv_function_add(void *buffer, struct header *header)
         ubpf_register(stage->vm, 1, "bpf_map_lookup_elem", bpf_lookup);
         ubpf_register(stage->vm, 2, "bpf_map_update_elem", bpf_update);
         ubpf_register(stage->vm, 3, "bpf_map_delete_elem", bpf_delete);
-        ubpf_register(stage->vm, 5, "bpf_ktime_get_ns", bpf_time);
         ubpf_register(stage->vm, 30, "bpf_mirror", bpf_mirror);
         ubpf_register(stage->vm, 31, "bpf_notify", bpf_notify);
         ubpf_register(stage->vm, 32, "bpf_debug", bpf_debug);
+        ubpf_register(stage->vm, 33, "bpf_get_dpid", bpf_get_dpid);
+        ubpf_register(stage->vm, 34, "bpf_get_port_count", bpf_get_port_count);
 
         // Load the stage function
         int err;

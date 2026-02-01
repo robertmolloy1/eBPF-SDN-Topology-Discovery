@@ -7,7 +7,8 @@ static int (*bpf_map_delete_elem)(void *map, void *key) = (void *)3;
 static int (*bpf_mirror)(unsigned long long out_port, void *buf, int len) = (void *)30;
 static int (*bpf_notify)(int id, void *data, int len) = (void *)31;
 static int (*bpf_debug)(unsigned long long arg) = (void *)32;
-static unsigned long (*bpf_ktime_get_ns)(void) = (void *) 5;
+static int (*bpf_get_dpid)(void) = (void *) 33;
+static int (*bpf_get_port_count)(void) = (void*) 34;
 
 
 #endif

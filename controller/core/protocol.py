@@ -14,6 +14,7 @@ FLOOD = 0x01 << 32
 CONTROLLER = 0x02 << 32
 DROP = 0x03 << 32
 NEXT = 0x04 << 32
+PIPELINE = 0x05 << 32
 
 class eBPFFactory(protocol.Factory):
     def __init__(self, application):
