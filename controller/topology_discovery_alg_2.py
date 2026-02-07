@@ -214,12 +214,11 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
             for src_switch in self.connections:
                 # If switch has been in temporary send pool for too long, remove
                 if (src_switch in self.temporary_send_pool):
-                    if (self.temporary_send_pool[src_switch] < self.cycle_id -10):
+                    if (self.cycle_id - self.temporary_send_pool[src_switch] % 256 >= 10):
                         del self.temporary_send_pool[src_switch]
 
-                # If switch has not responded to LLDP in 2 cycles (link failure etc), add to temporary send pool
-                # if (self.switch_last_cycle_response[src_switch] < self.cycle_id-1):
-                if (self.cycle_id - self.switch_last_cycle_response[src_switch] >= 2):
+                # If switch has not responded to LLDP in 2 cycles (e.g. unreachable due to link failure), add to temporary send pool
+                if (self.cycle_id - self.switch_last_cycle_response[src_switch] % 256 >= 2):
                     self.temporary_send_pool[src_switch]=self.cycle_id
 
                 # Loop over links for switch and check for timeout
@@ -231,7 +230,7 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
             for src_switch,src_port,dst_switch,dst_port in links_to_delete:
                 del self.links[src_switch][src_port]
 
-                # For each port associated with this link, determine if it is still in a switch to switch link:
+                # For each port associated with this link, determine if it is still in a switch to switch link before removing:
                 #     - Check if the forward link exists
                 #     - Check if the backwards link exists
                 #     - Check if the port is associated with a different link
