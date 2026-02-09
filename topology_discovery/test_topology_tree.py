@@ -11,8 +11,91 @@ from mininet.link import TCLink, Intf
 from subprocess import call
 import time 
 import sys
+import re
+import json
 
 from eBPFSwitch import eBPFSwitch, eBPFHost
+
+def eth_index(interface):
+    eth_re = re.compile(r".*-eth(\d+)$")
+    m = eth_re.match(interface)
+    return int(m.group(1))
+
+def export_topology(net):
+    nodes = []
+    seen_nodes = set()
+
+    for s in net.switches:
+        dpid = str(s.dpid)
+        if dpid not in seen_nodes:
+            nodes.append({"name" : dpid})
+            seen_nodes.add(dpid)
+
+    for h in net.hosts:
+        mac = h.MAC()
+        if mac not in seen_nodes:
+            nodes.append({"name" : mac})
+            seen_nodes.add(mac)
+
+    edges = []
+    edges_seen = set()
+
+    for link in net.links:
+        i1, i2 = link.intf1, link.intf2
+        n1, n2 = i1.node, i2.node
+
+        name1 = None
+        name2 = None
+        if (hasattr(n1, "dpid")):
+            name1 = str(n1.dpid)
+        else:
+            name1 = n1.MAC()
+
+        if (hasattr(n2, "dpid")):
+            name2 = str(n2.dpid)
+        else:
+            name2 = n2.MAC()
+
+        port1 = None
+        port2 = None
+        if (hasattr(n1, "dpid")):
+            port1 = eth_index(i1.name) - 1
+        else:
+            port1 = eth_index(i1.name)
+
+        if (hasattr(n2, "dpid")):
+            port2 = eth_index(i2.name) - 1
+        else:
+            port2 = eth_index(i2.name)
+
+        # Key to prevent duplicate link entries
+        a = (name1, port1)
+        b = (name2, port2)
+        key = tuple(sorted([a, b], key=lambda x: (str(x[0]), -1 if x[1] is None else int(x[1]))))
+        
+        if key in edges_seen:
+            continue
+        edges_seen.add(key)
+
+        edges.append({
+            "source": name1,
+            "destination": name2,
+            "src_port": port1,
+            "dst_port": port2,
+            "id": f"{key[0][0]}:{key[0][1]}--{key[1][0]}:{key[1][1]}"
+        })
+
+    data = {
+        "format": "graph-json",
+        "nodes" : nodes,
+        "edges": edges
+    }
+
+    with open("topology_ground_truth.json", "w") as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+
+    print(f"Exported topology as JSON to topology_ground_truth.json")
+
 
 if len(sys.argv) != 3:
     print("Usage: learningswitch.py [depth] [fanout]")
@@ -73,6 +156,8 @@ for n in net.hosts + net.switches:
     n.cmd('sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null')
     n.cmd('sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null')
     n.cmd('sysctl -w net.ipv6.conf.lo.disable_ipv6=1 >/dev/null')
+
+export_topology(net)
 
 CLI(net)
 net.stop()

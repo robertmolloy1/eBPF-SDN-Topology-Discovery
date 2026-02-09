@@ -20,6 +20,7 @@ bpfmap/test_hashmap
 
 controller/latency.dat
 
+topology_discovery/topology_ground_truth.json
 
 # OpenWRT package files
 ipkg-*
