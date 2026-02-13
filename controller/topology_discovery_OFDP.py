@@ -169,7 +169,7 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
             self.switch_ports[connection.dpid][i] = pkt_bytes
 
         # Install eBPF functions
-        with open('../topology_discovery/Topology_Discovery_v1.o', 'rb') as f:
+        with open('../topology_discovery/Topology_Discovery_OFDP.o', 'rb') as f:
             print("Installing the topology discovery eBPF ELF")
             connection.send(FunctionAddRequest(name="topologydiscovery", index=0, elf=f.read()))
 

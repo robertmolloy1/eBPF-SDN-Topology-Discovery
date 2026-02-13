@@ -53,10 +53,10 @@ class MainCLI(cmd.Cmd):
             print("Ground truth could not be read")
             return
         
-        controller_topology = self.application.get_topology(True)
+        controller_topology = self.application.get_topology()
 
         true_sw, true_h, true_sw_e, true_h_e = self.extract_graph_info(ground_truth)
-        cont_sw, cont_h, cont_sw_e, cont_h_e = self.extract_graph_info(controller_topology,False,True)
+        cont_sw, cont_h, cont_sw_e, cont_h_e = self.extract_graph_info(controller_topology)
 
         switches_prec,switches_rec, switches_f1 = self.calculate_metrics(true_sw,cont_sw)
         hosts_prec,hosts_rec, hosts_f1 = self.calculate_metrics(true_h,cont_h)
@@ -71,14 +71,14 @@ class MainCLI(cmd.Cmd):
 
 
     def do_export_topology(self,line):
-        controller_topology = self.application.get_topology(True)
+        controller_topology = self.application.get_topology()
 
         with open("../topology_discovery/controller_discovered_topology.json", "w") as f:
             json.dump(controller_topology, f, indent=2, sort_keys=True)
 
         print(f"Exported discovered topology as JSON to ../topology_discovery/controller_discovered_topology.json")
 
-    def extract_graph_info(self,topology,dup_links=False,sort_link_key=False):
+    def extract_graph_info(self,topology):
         switches = set()
         hosts = set()
         switch_edges = set()
@@ -104,14 +104,7 @@ class MainCLI(cmd.Cmd):
             else:
                 port_a = str(edge["src_port"])
                 port_b = str(edge["dst_port"])
-                if dup_links:
-                    switch_edges.add(((node_a,port_a),(node_b,port_b)))
-                    switch_edges.add(((node_b,port_b),(node_a,port_a)))
-                else:
-                    if sort_link_key:
-                        switch_edges.add(tuple(sorted(((node_a,port_a),(node_b,port_b)), key= lambda x:(str(x[0]),int(x[1])))))
-                    else:
-                        switch_edges.add(((node_a,port_a),(node_b,port_b)))
+                switch_edges.add(tuple(sorted(((node_a,port_a),(node_b,port_b)), key= lambda x:(str(x[0]),int(x[1])))))
 
         return switches, hosts, switch_edges, host_edges
     
@@ -164,7 +157,7 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
         self.links[connection.dpid] = {}
 
         # Install eBPF functions
-        with open('../topology_discovery/Topology_Discovery_v2.o', 'rb') as f:
+        with open('../topology_discovery/Topology_Discovery_New_Alg_Single_Link.o', 'rb') as f:
             print("Installing the topology discovery eBPF ELF")
             connection.send(FunctionAddRequest(name="topologydiscovery", index=0, elf=f.read()))
 
@@ -333,7 +326,7 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
 
             time.sleep(5)
 
-    def get_topology(self,single_links=False):
+    def get_topology(self):
         switches = list(map(lambda x: {"name": x, "type": "switch"},list(self.connections.keys())))
         hosts = list(map(lambda x: {"name": x.hex(":"), "type": "host"},list(self.hosts.keys())))
 
@@ -345,12 +338,11 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
                 a = (src_sw, src_p)
                 b = (dst_sw, dst_p)
 
-                if single_links:
-                    key = tuple(sorted([a, b], key=lambda x: (str(x[0]), -1 if x[1] is None else int(x[1]))))
+                key = tuple(sorted([a, b], key=lambda x: (str(x[0]), int(x[1]))))
 
-                    if key in switch_edges_seen:
-                        continue
-                    switch_edges_seen.add(key)
+                if key in switch_edges_seen:
+                    continue
+                switch_edges_seen.add(key)
 
                 switch_edges.append({
                     "source": src_sw,

@@ -5,8 +5,6 @@
 #define MAX_TLVS 4
 #define TIMEOUT 5000000000
 
-#define SKIP_INGRESS_PORT 1
-
 struct host_map_value {
     uint32_t port;
     uint64_t last_seen;
@@ -97,7 +95,7 @@ uint64_t prog(struct packet *pkt)
             {
                 break;
             }
-            if (SKIP_INGRESS_PORT && pkt->metadata.in_port == i) 
+            if (pkt->metadata.in_port == i) 
             {
                 continue;
             }

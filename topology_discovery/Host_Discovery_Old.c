@@ -24,8 +24,8 @@ uint64_t prog(struct packet *pkt)
     }
 
     struct host_map_value *host_info;
-    uint64_t time_now = bpf_ktime_get_ns(pkt->eth.h_proto);
-    struct host_map_value new_host_info = {.port = pkt->metadata.in_port, .last_seen = time_now};
+    uint64_t arrival_nsec = (uint64_t)(pkt->metadata.sec) * 1000000000ULL + (uint64_t)(pkt->metadata.nsec);
+    struct host_map_value new_host_info = {.port = pkt->metadata.in_port, .last_seen = arrival_nsec};
 
     if (bpf_map_lookup_elem(&hosts, pkt->eth.h_source, &host_info) == -1) // No entry for this host
     {
@@ -34,7 +34,7 @@ uint64_t prog(struct packet *pkt)
         return NEXT;
     }
 
-    if (host_info->port != pkt->metadata.in_port || time_now - host_info->last_seen > TIMEOUT) // Different port or old timestamp
+    if (host_info->port != pkt->metadata.in_port || arrival_nsec - host_info->last_seen > TIMEOUT) // Different port or old timestamp
     {
         bpf_notify(pkt->metadata.in_port, &(pkt->eth.h_source), sizeof(pkt->eth.h_source)); // Notify controller of host
         bpf_map_update_elem(&hosts, pkt->eth.h_source, &new_host_info, 0); // Update map entry
