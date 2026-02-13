@@ -113,8 +113,6 @@ class MainCLI(cmd.Cmd):
                     else:
                         switch_edges.add(((node_a,port_a),(node_b,port_b)))
 
-        print(len(switch_edges))
-
         return switches, hosts, switch_edges, host_edges
     
     def calculate_metrics(self, ground_truth, controller_data):
