@@ -3,6 +3,7 @@ from core import eBPFCoreApplication, set_event_handler, PIPELINE
 from core.packets import *
 
 import cmd
+import json
 
 import struct
 import time
@@ -43,6 +44,91 @@ class MainCLI(cmd.Cmd):
         for host,(switch,connected_port) in self.application.hosts.items():
             print(f'Host {host.hex(":")} connected to switch {switch}, port {connected_port}')
 
+    def do_evaluate_topology(self,line):
+        ground_truth = None
+        with open("../topology_discovery/topology_ground_truth.json", "r") as f:
+            ground_truth = json.load(f)
+
+        if ground_truth == None:
+            print("Ground truth could not be read")
+            return
+        
+        controller_topology = self.application.get_topology(True)
+
+        true_sw, true_h, true_sw_e, true_h_e = self.extract_graph_info(ground_truth)
+        cont_sw, cont_h, cont_sw_e, cont_h_e = self.extract_graph_info(controller_topology,False,True)
+
+        switches_prec,switches_rec, switches_f1 = self.calculate_metrics(true_sw,cont_sw)
+        hosts_prec,hosts_rec, hosts_f1 = self.calculate_metrics(true_h,cont_h)
+        switch_edges_prec,switch_edges_rec, switch_edges_f1 = self.calculate_metrics(true_sw_e,cont_sw_e)
+        host_edges_prec,host_edges_rec, host_edges_f1 = self.calculate_metrics(true_h_e,cont_h_e)
+
+        print("Topology Discovery Evaluation:")
+        print(f'Switch Stats - Precision: {switches_prec}, Recall: {switches_rec}, F1: {switches_f1}')
+        print(f'Host Stats - Precision: {hosts_prec}, Recall: {hosts_rec}, F1: {hosts_f1}')
+        print(f'Switch Edge Stats - Precision: {switch_edges_prec}, Recall: {switch_edges_rec}, F1: {switch_edges_f1}')
+        print(f'Host Edge Stats - Precision: {host_edges_prec}, Recall: {host_edges_rec}, F1: {host_edges_f1}')
+
+
+    def do_export_topology(self,line):
+        controller_topology = self.application.get_topology(True)
+
+        with open("../topology_discovery/controller_discovered_topology.json", "w") as f:
+            json.dump(controller_topology, f, indent=2, sort_keys=True)
+
+        print(f"Exported discovered topology as JSON to ../topology_discovery/controller_discovered_topology.json")
+
+    def extract_graph_info(self,topology,dup_links=False,sort_link_key=False):
+        switches = set()
+        hosts = set()
+        switch_edges = set()
+        host_edges = set()
+
+        for node in topology.get("nodes", []):
+            node_type = str(node["type"])
+            if node_type == "switch":
+                switches.add(str(node["name"]))
+            elif node_type == "host":
+                hosts.add(str(node["name"]))
+
+        for edge in topology.get("edges", []):
+            node_a = str(edge["source"])
+            node_b = str(edge["destination"])
+
+            if node_a in hosts:
+                port = str(edge["dst_port"])
+                host_edges.add(((node_b,port), node_a))
+            elif node_b in hosts:
+                port = str(edge["src_port"])
+                host_edges.add(((node_a,port), node_b))
+            else:
+                port_a = str(edge["src_port"])
+                port_b = str(edge["dst_port"])
+                if dup_links:
+                    switch_edges.add(((node_a,port_a),(node_b,port_b)))
+                    switch_edges.add(((node_b,port_b),(node_a,port_a)))
+                else:
+                    if sort_link_key:
+                        switch_edges.add(tuple(sorted(((node_a,port_a),(node_b,port_b)), key= lambda x:(str(x[0]),int(x[1])))))
+                    else:
+                        switch_edges.add(((node_a,port_a),(node_b,port_b)))
+
+        print(len(switch_edges))
+
+        return switches, hosts, switch_edges, host_edges
+    
+    def calculate_metrics(self, ground_truth, controller_data):
+        tp = len(ground_truth & controller_data)
+        fp = len(controller_data - ground_truth)
+        fn = len(ground_truth - controller_data)
+
+        precision = tp / (tp+fp) if (tp+fp) else 1.0
+        recall = tp / (tp+fn) if (tp+fn) else 1.0
+        f1 = (2*precision*recall)/(precision+recall) if (precision+recall) else 1.0
+
+        return precision,recall,f1
+
+
 class TopologyDiscoveryApplication(eBPFCoreApplication):
 
     def __init__(self, *args, **kwargs):
@@ -78,7 +164,6 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
     def hello(self, connection, pkt):
         self.switch_last_cycle_response[connection.dpid] = 0
         self.links[connection.dpid] = {}
-        print(connection.dpid)
 
         # Install eBPF functions
         with open('../topology_discovery/Topology_Discovery_v2.o', 'rb') as f:
@@ -88,8 +173,6 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
         with open('../examples/learningswitch.o', 'rb') as f:
             print("Installing the learning switch eBPF ELF")
             connection.send(FunctionAddRequest(name="learningswitch", index=1, elf=f.read()))
-
-        print()
 
     @set_event_handler(Header.NOTIFY)
     def notify_event(self, connection, pkt):
@@ -251,6 +334,50 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
                     del self.switch_to_switch_ports[(dst_switch,dst_port)]
 
             time.sleep(5)
+
+    def get_topology(self,single_links=False):
+        switches = list(map(lambda x: {"name": x, "type": "switch"},list(self.connections.keys())))
+        hosts = list(map(lambda x: {"name": x.hex(":"), "type": "host"},list(self.hosts.keys())))
+
+        switch_edges = []
+        switch_edges_seen = set()
+
+        for src_sw in self.links:
+            for src_p, (dst_sw,dst_p,_) in self.links[src_sw].items():
+                a = (src_sw, src_p)
+                b = (dst_sw, dst_p)
+
+                if single_links:
+                    key = tuple(sorted([a, b], key=lambda x: (str(x[0]), -1 if x[1] is None else int(x[1]))))
+
+                    if key in switch_edges_seen:
+                        continue
+                    switch_edges_seen.add(key)
+
+                switch_edges.append({
+                    "source": src_sw,
+                    "destination": dst_sw,
+                    "src_port": src_p,
+                    "dst_port": dst_p,
+                    "type": "switch to switch edge"
+                })
+
+        host_edges = []
+        host_edges_seen = set()
+
+        for host, (sw,p) in self.hosts.items():
+            if host in host_edges_seen:
+                continue
+            host_edges_seen.add(host)
+
+            host_edges.append({
+                "source": sw,
+                "destination": host.hex(":"),
+                "src_port": p,
+                "type": "host to switch edge"
+            })
+
+        return {"nodes": switches + hosts, "edges" : switch_edges + host_edges}
 
 if __name__ == '__main__':
     TopologyDiscoveryApplication().run()

@@ -2,9 +2,6 @@
 from mininet.net import Mininet
 from mininet.topolib import TreeTopo
 from mininet.node import UserSwitch
-# from mininet.node import CPULimitedHost, Host, Node
-#from mininet.node import OVSKernelSwitch, UserSwitch
-#from mininet.node import IVSSwitch
 from mininet.cli import CLI
 from mininet.log import setLogLevel, info
 from mininet.link import TCLink, Intf
@@ -13,6 +10,7 @@ import time
 import sys
 import re
 import json
+import ipaddress
 
 from eBPFSwitch import eBPFSwitch, eBPFHost
 
@@ -28,13 +26,13 @@ def export_topology(net):
     for s in net.switches:
         dpid = str(s.dpid)
         if dpid not in seen_nodes:
-            nodes.append({"name" : dpid})
+            nodes.append({"name" : dpid, "type": "switch"})
             seen_nodes.add(dpid)
 
     for h in net.hosts:
         mac = h.MAC()
         if mac not in seen_nodes:
-            nodes.append({"name" : mac})
+            nodes.append({"name" : mac, "type":"host"})
             seen_nodes.add(mac)
 
     edges = []
@@ -96,6 +94,9 @@ def export_topology(net):
 
     print(f"Exported topology as JSON to topology_ground_truth.json")
 
+def host_ip(n):
+    net = ipaddress.IPv4Network("10.0.0.0/24", strict=False)
+    return str(net.network_address + (n % (net.num_addresses - 2) + 1))
 
 if len(sys.argv) != 3:
     print("Usage: learningswitch.py [depth] [fanout]")
@@ -136,7 +137,7 @@ host_counter = 1
 
 for i in range(fanout**(depth-1)):
     for j in range(fanout):
-        hosts.append(net.addHost('h'+str(host_counter), cls=eBPFHost, ip='1.1.1.'+str(host_counter), defaultRoute='1.1.1.1',mac=':'.join(f'{host_counter:012x}'[i:i+2] for i in range(0,12,2))))
+        hosts.append(net.addHost('h'+str(host_counter), cls=eBPFHost, ip=host_ip(host_counter), defaultRoute='1.1.1.1',mac=':'.join(f'{host_counter:012x}'[i:i+2] for i in range(0,12,2))))
         net.addLink(switches[parent_counter], hosts[-1])
         print(f'h{host_counter}')
         host_counter = host_counter + 1
@@ -144,6 +145,12 @@ for i in range(fanout**(depth-1)):
     parent_counter = parent_counter + 1
 
 net.build()
+
+for n in net.hosts + net.switches:
+    n.cmd('sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null')
+    n.cmd('sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null')
+    n.cmd('sysctl -w net.ipv6.conf.lo.disable_ipv6=1 >/dev/null')
+
 info( '*** Starting controllers\n')
 for controller in net.controllers:
     controller.start()
@@ -151,11 +158,7 @@ for controller in net.controllers:
 info( '*** Starting networking devices\n')
 for i in range(1,len(switches)+1):
     net.get('s'+str(i)).start([])
-
-for n in net.hosts + net.switches:
-    n.cmd('sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null')
-    n.cmd('sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null')
-    n.cmd('sysctl -w net.ipv6.conf.lo.disable_ipv6=1 >/dev/null')
+    time.sleep(0.3)
 
 export_topology(net)
 
