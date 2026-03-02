@@ -158,7 +158,7 @@ for controller in net.controllers:
 info( '*** Starting networking devices\n')
 for i in range(1,len(switches)+1):
     net.get('s'+str(i)).start([])
-    time.sleep(0.3)
+    time.sleep(1.5)
 
 export_topology(net)
 

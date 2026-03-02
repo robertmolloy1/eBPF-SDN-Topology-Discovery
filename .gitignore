@@ -19,6 +19,7 @@ bpfmap/test_bpfmap
 bpfmap/test_hashmap
 
 controller/latency.dat
+controller/window.prof
 
 topology_discovery/*.json
 
