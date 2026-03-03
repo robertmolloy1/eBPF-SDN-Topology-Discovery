@@ -54,7 +54,7 @@ class MainCLI(cmd.Cmd):
                     print("Ground truth could not be read")
                     return
                 
-                _, _, true_sw_e, _ = self.extract_graph_info(ground_truth)
+                _, _, true_sw_e, _ = self.extract_graph_info(ground_truth, True)
                 self.application.measure_discovery_time["target"] = len(true_sw_e)
 
         self.application.discover_topology = True
