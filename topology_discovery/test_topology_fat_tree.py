@@ -80,7 +80,7 @@ def export_topology(net):
             "destination": name2,
             "src_port": port1,
             "dst_port": port2,
-            # "id": f"{key[0][0]}:{key[0][1]}--{key[1][0]}:{key[1][1]}"
+            "id": f"{key[0][0]}:{key[0][1]}--{key[1][0]}:{key[1][1]}"
         })
 
     data = {
@@ -99,8 +99,11 @@ def host_ip(n):
     return str(net.network_address + (n % (net.num_addresses - 2) + 1))
 
 if len(sys.argv) != 2:
-    print("Usage: test_topology_linear.py [host_num]")
+    print("Usage: test_topology_fat_tree.py [k]")
     exit()
+
+k = int(sys.argv[1])
+m = k//2
 
 net = Mininet(
     topo=None,
@@ -113,18 +116,48 @@ net = Mininet(
 switchPath = "../softswitch/softswitch"; 
 
 hosts = []
+core_switches = []
+agg_switches = []
+edge_switches = []
 switches = []
 
-hosts.append(net.addHost('h1', cls=eBPFHost, ip=host_ip(1), defaultRoute='1.1.1.2',mac='00:00:00:00:00:01'))
-switches.append(net.addSwitch('s1', dpid=1, switch_path=switchPath))
-net.addLink(hosts[0], switches[0])
+switch_counter = 1
+host_counter = 1
 
-for i in range(1,int(sys.argv[1])):
-    print(i)
-    hosts.append(net.addHost('h'+str(i+1), cls=eBPFHost, ip=host_ip(i+1), defaultRoute='1.1.1.1',mac=':'.join(f'{i+1:012x}'[j:j+2] for j in range(0,12,2))))
-    switches.append(net.addSwitch('s'+str(i+1), dpid=i+1, switch_path=switchPath))
-    net.addLink(hosts[i], switches[i])
-    net.addLink(switches[i-1], switches[i])
+# Set up all core switches first
+for i in range(m*m):
+    core_switches.append(net.addSwitch('s'+str(switch_counter), dpid=switch_counter, switch_path=switchPath))
+    switch_counter += 1
+
+# Set up all aggregation switches
+for i in range (k*m):
+    agg_switches.append(net.addSwitch('s'+str(switch_counter), dpid=switch_counter, switch_path=switchPath))
+    switch_counter += 1
+
+# Set up all edge switches
+for i in range (k*m):
+    edge_switches.append(net.addSwitch('s'+str(switch_counter), dpid=switch_counter, switch_path=switchPath))
+    switch_counter += 1
+
+# switches.extend(core_switches)
+
+# Set up links from aggregation layer to core layer
+for i in range(k*m):
+    start_core = i % m
+    for j in range(m):
+        net.addLink(agg_switches[i], core_switches[start_core+(j*m)])
+
+# Set up links from edge layer to aggregation layer
+for i in range(k*m):
+    start_agg = i - (i%m)
+    for j in range(m):
+        net.addLink(edge_switches[i], agg_switches[start_agg+j])
+
+# Set up hosts and link to edge layer
+for i in range(k*m*m):
+    hosts.append(net.addHost('h'+str(host_counter), cls=eBPFHost, ip=host_ip(host_counter), defaultRoute='1.1.1.1',mac=':'.join(f'{host_counter:012x}'[i:i+2] for i in range(0,12,2))))
+    host_counter += 1
+    net.addLink(hosts[i], edge_switches[i//m])
 
 net.build()
 
@@ -138,7 +171,7 @@ for controller in net.controllers:
     controller.start()
 
 info( '*** Starting networking devices\n')
-for i in range(1,int(sys.argv[1])+1):
+for i in range(1,switch_counter):
     net.get('s'+str(i)).start([])
     # Delay to ensure all devices start and connect to the controller correctly. Can be adjusted to avoid long start-up time
     time.sleep(1.5)

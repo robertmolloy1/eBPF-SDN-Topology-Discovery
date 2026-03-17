@@ -99,7 +99,7 @@ def host_ip(n):
     return str(net.network_address + (n % (net.num_addresses - 2) + 1))
 
 if len(sys.argv) != 3:
-    print("Usage: learningswitch.py [depth] [fanout]")
+    print("Usage: test_topology_tree.py [depth] [fanout]")
     exit()
 
 depth = int(sys.argv[1])
@@ -128,7 +128,6 @@ for i in range(1,depth):
         for k in range(fanout):
             switches.append(net.addSwitch('s'+str(switch_counter), dpid=switch_counter, switch_path=switchPath))
             net.addLink(switches[parent_counter], switches[-1])
-            print(f's{switch_counter}')
             switch_counter = switch_counter + 1
         
         parent_counter = parent_counter + 1
@@ -139,7 +138,6 @@ for i in range(fanout**(depth-1)):
     for j in range(fanout):
         hosts.append(net.addHost('h'+str(host_counter), cls=eBPFHost, ip=host_ip(host_counter), defaultRoute='1.1.1.1',mac=':'.join(f'{host_counter:012x}'[i:i+2] for i in range(0,12,2))))
         net.addLink(switches[parent_counter], hosts[-1])
-        print(f'h{host_counter}')
         host_counter = host_counter + 1
 
     parent_counter = parent_counter + 1
@@ -158,6 +156,7 @@ for controller in net.controllers:
 info( '*** Starting networking devices\n')
 for i in range(1,len(switches)+1):
     net.get('s'+str(i)).start([])
+    # Delay to ensure all devices start and connect to the controller correctly. Can be adjusted to avoid long start-up time
     time.sleep(1.5)
 
 export_topology(net)

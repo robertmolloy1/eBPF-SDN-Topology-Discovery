@@ -368,6 +368,8 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
         self.switch_to_switch_ports[(src_dpid,src_port)] = (dst_dpid,dst_port) # Add both ports associated with link as switch to switch ports
         self.switch_to_switch_ports[(dst_dpid,dst_port)] = (src_dpid,src_port)
         self.switch_last_cycle_response[dst_dpid] = cycle_id # Update last cycle id resopnse for this switch
+        if (self.cycle_id - cycle_id) % 256 < 2:
+            self.switch_last_cycle_response[dst_dpid] = cycle_id # Update last cycle id resopnse for this switch (if this is a response from the current cycle)
 
         if self.packet_counts:
             self.packet_in.setdefault(self.cycle_id, 0) 
@@ -414,6 +416,11 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
             if self.measure_cpu_time["active"]:
                 self.perform_cpu_time_measurement()
 
+            # If any switch has not responded to last discovery cycle (e.g. unreachable due to link failure), add to temporary send pool
+            for src_switch in self.connections:
+                if (self.cycle_id - self.switch_last_cycle_response[src_switch]) % 256 >= 1:
+                    self.temporary_send_pool[src_switch]=self.cycle_id
+
             # Set cycle id in packet for this cycle
             self.cycle_id = (self.cycle_id + 1) % 256
             raw[cycle_offset] = self.cycle_id
@@ -448,12 +455,8 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
             for src_switch in self.connections:
                 # If switch has been in temporary send pool for too long, remove
                 if (src_switch in self.temporary_send_pool):
-                    if (self.cycle_id - self.temporary_send_pool[src_switch] % 256 >= 10):
+                    if (self.cycle_id - self.temporary_send_pool[src_switch]) % 256 >= 10:
                         del self.temporary_send_pool[src_switch]
-
-                # If switch has not responded to LLDP in 2 cycles (e.g. unreachable due to link failure), add to temporary send pool
-                if (self.cycle_id - self.switch_last_cycle_response[src_switch] % 256 >= 2):
-                    self.temporary_send_pool[src_switch]=self.cycle_id
 
                 # Loop over links for switch and check for timeout
                 for src_port, (dst_switch,dst_port,timestamp) in self.links[src_switch].items():
@@ -536,7 +539,7 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
             self.measure_cpu_time["started"] = True
             self.measure_cpu_time["start_cycle"] = self.cycle_id
             self.measure_cpu_time["start_time"] = time.process_time()
-        elif self.cycle_id - self.measure_cpu_time["start_cycle"] % 256 > 19:
+        elif (self.cycle_id - self.measure_cpu_time["start_cycle"]) % 256 > 19:
             end_time = time.process_time()
             self.discover_topology = False
             print(f'CPU time over 20 cycle measurement window was {end_time-self.measure_cpu_time["start_time"]}')
@@ -548,7 +551,7 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
             self.measure_function_calls["started"] = True
             self.measure_function_calls["start_cycle"] = self.cycle_id
             self.measure_function_calls["prof"].enable()
-        elif self.cycle_id - self.measure_function_calls["start_cycle"] % 256 > 19:
+        elif (self.cycle_id - self.measure_function_calls["start_cycle"]) % 256 > 19:
             self.measure_function_calls["prof"].disable()
             self.discover_topology = False
             self.measure_function_calls["prof"].dump_stats("window.prof")
