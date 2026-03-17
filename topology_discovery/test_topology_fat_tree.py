@@ -139,8 +139,6 @@ for i in range (k*m):
     edge_switches.append(net.addSwitch('s'+str(switch_counter), dpid=switch_counter, switch_path=switchPath))
     switch_counter += 1
 
-# switches.extend(core_switches)
-
 # Set up links from aggregation layer to core layer
 for i in range(k*m):
     start_core = i % m

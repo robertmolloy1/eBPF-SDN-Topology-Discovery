@@ -120,7 +120,6 @@ switches.append(net.addSwitch('s1', dpid=1, switch_path=switchPath))
 net.addLink(hosts[0], switches[0])
 
 for i in range(1,int(sys.argv[1])):
-    print(i)
     hosts.append(net.addHost('h'+str(i+1), cls=eBPFHost, ip=host_ip(i+1), defaultRoute='1.1.1.1',mac=':'.join(f'{i+1:012x}'[j:j+2] for j in range(0,12,2))))
     switches.append(net.addSwitch('s'+str(i+1), dpid=i+1, switch_path=switchPath))
     net.addLink(hosts[i], switches[i])
