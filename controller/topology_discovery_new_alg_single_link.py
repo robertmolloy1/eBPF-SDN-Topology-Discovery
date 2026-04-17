@@ -29,8 +29,8 @@ class MainCLI(cmd.Cmd):
             print("Discovery process already running")
             return
 
-        line = line.split(" ")
-        for com in line:
+        line_split = line.split(" ")
+        for com in line_split:
             if com == "cpu_time": 
                 self.application.measure_cpu_time["active"] = True
 
@@ -44,6 +44,7 @@ class MainCLI(cmd.Cmd):
                 self.application.threads.append(packet_counts_thread)
                 packet_counts_thread.start()
             elif com == "discovery_time":
+                
                 self.application.measure_discovery_time["active"] = True
                 for switch in self.application.links:
                     self.application.links[switch] = {}
@@ -55,10 +56,18 @@ class MainCLI(cmd.Cmd):
                     print("Ground truth could not be read")
                     return
                 
+                
                 _, _, true_sw_e, _ = self.extract_graph_info(ground_truth)
+                # self.application.measure_discovery_time["target"] = int(line_split[-1])
+                # self.application.measure_discovery_time["packet in"] = 0
+
                 self.application.measure_discovery_time["target"] = len(true_sw_e)
-                self.application.measure_discovery_time["true_edges"] = true_sw_e
-                self.application.packet_in = {}
+                # self.application.measure_discovery_time["true_edges"] = true_sw_e
+                # self.application.packet_in = {}
+
+
+        self.application.temporary_send_pool = {}
+
 
         self.application.discover_topology = True
 
@@ -84,7 +93,7 @@ class MainCLI(cmd.Cmd):
                 self.application.packet_counts_thread.join(5)
 
             self.application.measure_function_calls = {"active": False, "started": False, "start_cycle": 0, "prof": None}
-            self.application.measure_cpu_time = {"active": False, "started": False, "start_cycle": 0, "start_time": 0}
+            self.application.measure_cpu_time = {"active": False, "started": False, "start_cycle": 0, "start_time": 0, "target": 0}
 
             self.application.measure_discovery_time["active"] = False
             print("Topology discovery stopped")
@@ -159,7 +168,7 @@ class MainCLI(cmd.Cmd):
             ports[(switch,mac_to_id[host])] = port
 
         plt.figure(figsize=(14,8))
-        pos = graphviz_layout(G, prog="twopi")
+        pos = graphviz_layout(G, prog="sfdp")
 
         nx.draw(G, pos, with_labels=False, node_size=1000, node_color="lightblue")
 
@@ -238,7 +247,8 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
         self.active = True
         self.discover_topology = False
         self.packet_counts = False
-        self.measure_discovery_time = {"active": False, "start": 0, "target": 0, "true_edges": None}
+        self.measure_discovery_time = {"active": False, "start": 0, "target": 0, "packet in": 0}
+        self.cycle_length = 5
 
         self.links = {}                       # Discovered switch to switch links (may contain one or two entries per link).   {src_sw : {src_port : (dst_sw,dst_port,timestamp)}}
         self.switch_to_switch_ports = {}      # Ports involved in switch to switch links (Always contains both sides of a link).   {(src_sw,src_port) : (dst_sw,dst_port)}
@@ -253,7 +263,7 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
         self.permanent_send_pool = []         # Switches that will always have LLDP probes sent to them.
 
         self.measure_function_calls = {"active": False, "started": False, "start_cycle": 0, "prof": None}
-        self.measure_cpu_time = {"active": False, "started": False, "start_cycle": 0, "start_time": 0}
+        self.measure_cpu_time = {"active": False, "started": False, "start_cycle": 0, "start_time": 0, "target": 0}
         self.packet_counts_thread = None
         self.packet_in = {}
         self.packet_out = {}
@@ -364,7 +374,14 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
             del self.hosts[host]
         
         time_now = time.time()
-        self.links.setdefault(src_dpid, {})[src_port] = (dst_dpid,dst_port,time_now) # Add link
+        if self.measure_discovery_time["active"]:
+            if src_dpid < dst_dpid:
+                self.links.setdefault(src_dpid, {})[src_port] = (dst_dpid,dst_port,time_now) # Add link
+            else:
+                self.links.setdefault(dst_dpid, {})[dst_port] = (src_dpid,src_port,time_now) # Add link
+        else:
+            self.links.setdefault(src_dpid, {})[src_port] = (dst_dpid,dst_port,time_now) # Add link
+
         self.switch_to_switch_ports[(src_dpid,src_port)] = (dst_dpid,dst_port) # Add both ports associated with link as switch to switch ports
         self.switch_to_switch_ports[(dst_dpid,dst_port)] = (src_dpid,src_port)
         if (self.cycle_id - cycle_id) % 256 < 2:
@@ -374,15 +391,14 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
             self.packet_in.setdefault(self.cycle_id, 0) 
             self.packet_in[self.cycle_id] += 1
         if self.measure_discovery_time["active"]:
-            self.packet_in.setdefault(self.cycle_id, 0) 
-            self.packet_in[self.cycle_id] += 1
+            # self.measure_discovery_time["packet in"] += 1
+            # if self.measure_discovery_time["packet in"] == self.measure_discovery_time["target"]:
             number_of_links = sum(len(switch_links) for switch_links in self.links.values())
             if number_of_links >= self.measure_discovery_time["target"]:
-                if self.packet_in[self.cycle_id] == 433:
-                    self.discover_topology = False
-                    end = time.perf_counter()
-                    self.measure_discovery_time["active"] = False
-                    print(f'Full topology discovered in {end-self.measure_discovery_time["start"]} seconds')
+                self.discover_topology = False
+                end = time.perf_counter()
+                self.measure_discovery_time["active"] = False
+                print(f'Full topology discovered in {end-self.measure_discovery_time["start"]} seconds')
 
     # Send LLDP probes to specified switches
     def lldp_generator(self):
@@ -444,7 +460,7 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
                     self.packet_out.setdefault(self.cycle_id, 0) 
                     self.packet_out[self.cycle_id] += 1
 
-            time.sleep(5)
+            time.sleep(self.cycle_length)
 
     def link_remover(self):
         def maps_to(entry, neighbour_sw, neighbour_port):
@@ -457,12 +473,12 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
             for src_switch in self.connections:
                 # If switch has been in temporary send pool for too long, remove
                 if (src_switch in self.temporary_send_pool):
-                    if (self.cycle_id - self.temporary_send_pool[src_switch]) % 256 >= 10:
+                    if (self.cycle_id - self.temporary_send_pool[src_switch]) % 256 >= 100:
                         del self.temporary_send_pool[src_switch]
 
                 # Loop over links for switch and check for timeout
                 for src_port, (dst_switch,dst_port,timestamp) in self.links[src_switch].items():
-                    if time_now - timestamp >10:
+                    if time_now - timestamp > (2*self.cycle_length):
                         links_to_delete.append((src_switch,src_port,dst_switch,dst_port))
 
             # Remove links flagged as timed out
@@ -489,7 +505,7 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
 
                     del self.switch_to_switch_ports[(dst_switch,dst_port)]
 
-            time.sleep(5)
+            time.sleep(self.cycle_length)
 
     def get_topology(self):
         switches = list(map(lambda x: {"name": x, "type": "switch"},list(self.connections.keys())))
@@ -540,11 +556,12 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
             self.measure_cpu_time["started"] = True
             self.measure_cpu_time["start_cycle"] = self.cycle_id
             self.measure_cpu_time["start_time"] = time.process_time()
-        elif (self.cycle_id - self.measure_cpu_time["start_cycle"]) % 256 > 19:
+            self.measure_cpu_time["target"] = 100/self.cycle_length -1
+        elif (self.cycle_id - self.measure_cpu_time["start_cycle"]) % 256 > self.measure_cpu_time["target"]:
             end_time = time.process_time()
             self.discover_topology = False
-            print(f'CPU time over 20 cycle measurement window was {end_time-self.measure_cpu_time["start_time"]}')
-            self.measure_cpu_time = {"active": False, "started": False, "start_cycle": 0, "start_time": 0}
+            print(f'CPU time over {self.measure_cpu_time["target"]+1} cycle measurement window was {end_time-self.measure_cpu_time["start_time"]}')
+            self.measure_cpu_time = {"active": False, "started": False, "start_cycle": 0, "start_time": 0, "target": 0}
 
     def perform_function_calls_measurement(self):
         if not self.measure_function_calls["started"]:

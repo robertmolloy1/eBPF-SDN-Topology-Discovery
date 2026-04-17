@@ -28,8 +28,8 @@ class MainCLI(cmd.Cmd):
             print("Discovery process already running")
             return
 
-        line = line.split(" ")
-        for com in line:
+        line_split = line.split(" ")
+        for com in line_split:
             if com == "cpu_time": 
                 self.application.measure_cpu_time["active"] = True
 
@@ -55,6 +55,9 @@ class MainCLI(cmd.Cmd):
                     return
                 
                 _, _, true_sw_e, _ = self.extract_graph_info(ground_truth, True)
+                # self.application.measure_discovery_time["target"] = int(line_split[-1])
+                # self.application.measure_discovery_time["packet in"] = 0
+
                 self.application.measure_discovery_time["target"] = len(true_sw_e)
 
         self.application.discover_topology = True
@@ -81,7 +84,7 @@ class MainCLI(cmd.Cmd):
                 self.application.packet_counts_thread.join(5)
 
             self.application.measure_function_calls = {"active": False, "started": False, "start_cycle": 0, "prof": None}
-            self.application.measure_cpu_time = {"active": False, "started": False, "start_cycle": 0, "start_time": 0}
+            self.application.measure_cpu_time = {"active": False, "started": False, "start_cycle": 0, "start_time": 0, "target": 0}
 
             self.application.measure_discovery_time["active"] = False
             print("Topology discovery stopped")
@@ -233,10 +236,11 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args,**kwargs)
-        self.active = True
+        self.active = True 
         self.discover_topology = False
         self.packet_counts = False
-        self.measure_discovery_time = {"active": False, "start": 0, "target": 0}
+        self.measure_discovery_time = {"active": False, "start": 0, "target": 0, "packet in": 0}
+        self.cycle_length = 5
 
         self.switch_lldp_packet = {}
         self.links = {}
@@ -247,7 +251,7 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
         self.link_remover_thread = None
 
         self.measure_function_calls = {"active": False, "started": False, "start_cycle": 0, "prof": None}
-        self.measure_cpu_time = {"active": False, "started": False, "start_cycle": 0, "start_time": 0}
+        self.measure_cpu_time = {"active": False, "started": False, "start_cycle": 0, "start_time": 0, "target": 0}
         self.packet_counts_thread = None
         self.packet_in = {}
         self.packet_out = {}
@@ -365,6 +369,8 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
             self.packet_in.setdefault(self.count_index, 0) 
             self.packet_in[self.count_index] += 1
         if self.measure_discovery_time["active"]:
+            # self.measure_discovery_time["packet in"] += 1
+            # if self.measure_discovery_time["packet in"] == self.measure_discovery_time["target"]:
             number_of_links = sum(len(switch_links) for switch_links in self.links.values())
             if number_of_links >= self.measure_discovery_time["target"]:
                 self.discover_topology = False
@@ -392,7 +398,7 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
                     self.packet_out.setdefault(self.count_index, 0) 
                     self.packet_out[self.count_index] += 1
 
-            time.sleep(5)
+            time.sleep(self.cycle_length)
 
     def link_remover(self):
         while self.active and self.discover_topology:
@@ -400,13 +406,13 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
             links_to_delete = []
             for switch in self.connections:
                 for port, value in self.links[switch].items():
-                    if time_now - value[2] >10:
+                    if time_now - value[2] > (2*self.cycle_length):
                         links_to_delete.append((switch,port))
 
             for link in links_to_delete:
                 del self.links[link[0]][link[1]]
 
-            time.sleep(5)
+            time.sleep(self.cycle_length)
 
     def get_topology(self,single_links = False):
         switches = list(map(lambda x: {"name": x, "type": "switch"},list(self.connections.keys())))
@@ -459,11 +465,12 @@ class TopologyDiscoveryApplication(eBPFCoreApplication):
             self.measure_cpu_time["started"] = True
             self.measure_cpu_time["start_cycle"] = self.count_index
             self.measure_cpu_time["start_time"] = time.process_time()
-        elif self.count_index - self.measure_cpu_time["start_cycle"] % 256 > 19:
+            self.measure_cpu_time["target"] = 100/self.cycle_length - 1
+        elif self.count_index - self.measure_cpu_time["start_cycle"] % 256 > self.measure_cpu_time["target"]:
             end_time = time.process_time()
             self.discover_topology = False
-            print(f'CPU time over 20 cycle measurement window was {end_time-self.measure_cpu_time["start_time"]}')
-            self.measure_cpu_time = {"active": False, "started": False, "start_cycle": 0, "start_time": 0}
+            print(f'CPU time over {self.measure_cpu_time["target"]+1} cycle measurement window was {end_time-self.measure_cpu_time["start_time"]}')
+            self.measure_cpu_time = {"active": False, "started": False, "start_cycle": 0, "start_time": 0, "target": 0}
 
     def perform_function_calls_measurement(self):
         if not self.measure_function_calls["started"]:

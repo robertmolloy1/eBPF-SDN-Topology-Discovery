@@ -127,6 +127,7 @@ for i in range(1,depth):
     for j in range(fanout**(i-1)):
         for k in range(fanout):
             switches.append(net.addSwitch('s'+str(switch_counter), dpid=switch_counter, switch_path=switchPath))
+            # if switch_counter != 5:
             net.addLink(switches[parent_counter], switches[-1])
             switch_counter = switch_counter + 1
         
